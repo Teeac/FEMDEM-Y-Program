@@ -1,0 +1,975 @@
+/* Copyright (C) 2000, Dr. Antonio Munjiza
+ *
+ * This code is provided as part of the book entitled "The Combined
+ * Finite Discrete Element Method". It is distributed WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. Inclusion of a part or whole of this code into any other
+ * commercial or research or other purpose code is not granted without author's
+ * written explicit permission.
+ * When results using whole or any part of this code
+ * are published, Y code must be mentioned and acknowledgement to Dr Munjiza must be made.
+ * Should you modify this source code, the Copyright (C) on the modified code
+ * as a whole belongs to Dr. A. Munjiza regardless of the extent or nature
+ * of modifications.
+ * Copyright (C) to whole of any code containing any part of this code
+ * also belongs to Dr. A.Munjiza.
+ * Any code comprising any part of this source code
+ * must be called Y program.
+ * If you do not agree with this, you are not allowed to do
+ * any modifications to any part of this source code or included
+ * any part of it in any other program.
+ */
+  /* File   Yfd.c */
+#include "Yproto.h"
+/**************GENERALISED NODAL FORCES***********/
+static void Yfd2TRIELS(  /* small strain elastic triangle  */
+            nelem,
+            iprop,
+            npnfact,mprop,nprop,
+            d3pnfac,
+            dpeks,dpela ,dpemu ,dpero ,
+            dpsem,
+            d1nccx,d1nccy,d1ncix,d1nciy,d1nfcx,
+            d1nfcy,d1nmct,d1nvcx,d1nvcy,d1pnaf,
+            d1pnap,d1pnat,
+            i1elpr,i1nopr,i2elto,
+            nohys, dohyp, dctime,
+            d1ohys, d1ohyt, d1ohyx, d1ohyy,
+            i1ohyt, npnset, d3tcs
+            )
+  INT    nelem;
+  INT    iprop;
+  INT   npnfact; INT    mprop; INT    nprop;
+  INT npnset;
+  DBL ***d3pnfac;
+  DBL    dpeks; DBL   dpela; DBL    dpemu; DBL   dpero;
+  DBL   dpsem;
+  DBL *d1nccx; DBL  *d1nccy; DBL *d1ncix; DBL  *d1nciy; DBL *d1nfcx;
+  DBL *d1nfcy; DBL  *d1nmct; DBL *d1nvcx; DBL  *d1nvcy; DBL *d1pnaf;
+  DBL *d1pnap; DBL  *d1pnat;
+  INT *i1elpr; INT  *i1nopr; INT **i2elto;
+  INT   nohys; DBL    dohyp; DBL   dctime;
+  DBL *d1ohys; DBL  *d1ohyt; DBL  *d1ohyx; DBL *d1ohyy;
+  INT *i1ohyt;
+  DBL ***d3tcs;
+{ DBL nx,ny,voli,volc;
+  DBL v0, v1, v2, rpx, rpy, r0x, r0y, r1x, r1y, r2x, r2y, stprev;
+  DBL  V[3];
+  DBL  B[2][2];     /* left Cauchy-Green strain tensor                        */
+  DBL  D[2][2];     /* rate of deformation (stretching) tensor                */
+  DBL  E[2][2];     /* strain tensor (small strains)                          */
+  DBL  F[2][2];     /* deformation gradient in global base                    */
+  DBL F0[2][2];     /* initial local base                                     */
+  DBL FX[2][2];     /* current local base                                     */
+  DBL F0inv[2][2];  /* global base in initial local base                      */
+  DBL FXinv[2][2];  /* global base in current local base                      */
+  DBL  L[2][2];     /* velocity gradient in global base                       */
+  DBL LX[2][2];     /* vel. gradient in current local base = delta x/delta X  */
+  DBL  T[2][2];     /* Cauchy stress                                          */
+  INT ielem;
+  INT i,j,k,in,jn,kn,jnopr,knopr;
+  INT ihys;
+  DBL **d2fact;
+  DBL **d2time;
+
+  if(d1pnaf == DBL1NULL)
+  { d1pnaf = TalDBL1(mprop);
+  }
+  for(i=0; i<nprop; i++)
+  { d1pnaf[i]=R1;
+  }
+
+  if(d3pnfac != DBL3NULL)
+  { if(d3pnfac[0][0][0] != -R1)
+    { d2time = d3pnfac[0];
+      d2fact = d3pnfac[1];
+      for(j=0; j<npnset; j++)
+      { for(i=1; i<npnfact; i++)
+        { if((dctime>=d2time[j][i-1])&&(dctime<=d2time[j][i]))
+          { d1pnaf[j]=d2fact[j][i-1]-((d2fact[j][i-1]-d2fact[j][i])*
+                      ((dctime-d2time[j][i-1])/(d2time[j][i]-d2time[j][i-1])));
+  } } } } }
+
+  for(ielem=0;ielem<nelem;ielem++)
+  { if(i1elpr[ielem]==iprop)
+    { for(i=1;i<3;i++)
+      { F0[0][i-1]=d1ncix[(i2elto[i][ielem])]-d1ncix[(i2elto[0][ielem])];
+        F0[1][i-1]=d1nciy[(i2elto[i][ielem])]-d1nciy[(i2elto[0][ielem])];
+        FX[0][i-1]=d1nccx[(i2elto[i][ielem])]-d1nccx[(i2elto[0][ielem])];
+        FX[1][i-1]=d1nccy[(i2elto[i][ielem])]-d1nccy[(i2elto[0][ielem])];
+        LX[0][i-1]=d1nvcx[(i2elto[i][ielem])]-d1nvcx[(i2elto[0][ielem])];
+        LX[1][i-1]=d1nvcy[(i2elto[i][ielem])]-d1nvcy[(i2elto[0][ielem])];
+      }
+      YMATINV2(F0,F0inv,voli);
+      YMATINV2(FX,FXinv,volc);
+      for(i=0;i<2;i++)
+      { for(j=0;j<2;j++)
+        { F[i][j]=R0;
+          L[i][j]=R0;
+          for(k=0;k<2;k++)
+          { F[i][j]=F[i][j]+FX[i][k]*F0inv[k][j];
+            L[i][j]=L[i][j]+LX[i][k]*FXinv[k][j];
+      } } }
+      for(i=0;i<2;i++)
+      { for(j=0;j<2;j++)
+        { B[i][j]=R0;
+          for(k=0;k<2;k++)
+          { B[i][j]=B[i][j]+F[i][k]*F[j][k]; /* left Cauchy-Green strain */
+          }
+          D[i][j]=RP5*(L[i][j]+L[j][i]);     /* rate of deformation      */
+          E[i][j]=RP5*B[i][j];               /* small strain             */
+          if(i==j)E[i][j]=E[i][j]-RP5;
+      } }
+      for(i=0;i<2;i++)     /* Cauchy stress T=2*mu*E+lamda*trace(E) */
+      { for(j=0;j<2;j++)
+        { T[i][j]=R2*dpemu*E[i][j]*(voli/volc)+dpeks*D[i][j];
+        }
+        T[i][i]=T[i][i]+dpela*(volc/voli-voli/volc)*RP5;
+      }
+      for(i=0;i<2;i++) /* for output - 2011-10-24 20:49:54 Z.LEI*/
+      { for(j=0;j<2;j++)
+        { d3tcs[i][j][ielem]=T[i][j];
+        }
+      }
+
+      /* output history states */
+      r0x = d1ncix[(i2elto[0][ielem])];
+      r0y = d1nciy[(i2elto[0][ielem])];
+      r1x = d1ncix[(i2elto[1][ielem])];
+      r1y = d1nciy[(i2elto[1][ielem])];
+      r2x = d1ncix[(i2elto[2][ielem])];
+      r2y = d1nciy[(i2elto[2][ielem])];
+      for(ihys=0; ihys<nohys; ihys++)
+      { rpx=d1ohyx[ihys];  /* x coordinate of point P */
+        rpy=d1ohyy[ihys];  /* y coordinate of point P */
+        V2DCro(v0,(r1x-r0x),(r1y-r0y),(rpx-r0x),(rpy-r0y));
+        V2DCro(v1,(r2x-r1x),(r2y-r1y),(rpx-r1x),(rpy-r1y));
+        V2DCro(v2,(r0x-r2x),(r0y-r2y),(rpx-r2x),(rpy-r2y));
+
+        if((v0>R0)&&(v1>R0)&&(v2>R0))    /* if point is inside the triangle */
+        { if(i1ohyt[ihys]==(YFLDSXX))
+          { stprev=MAXIM((EPSILON),(ABS(d1ohys[ihys])));
+            if((ABS(T[0][0]-stprev))>=dohyp)
+            { d1ohyt[ihys] = dctime;    /* output history time  */
+              d1ohys[ihys] = T[0][0];    /* output history state */
+          } }
+          else if(i1ohyt[ihys]==(YFLDSXY))
+          { stprev=MAXIM((EPSILON),(ABS(d1ohys[ihys])));
+            if((ABS(T[0][1]-stprev))>=dohyp)  /* if((ABS(R1-T[0][1]/stprev))>dohyp) */
+            { d1ohyt[ihys] = dctime;
+              d1ohys[ihys] = T[0][1];
+          } }
+          else if(i1ohyt[ihys]==(YFLDSYY))
+          { stprev=MAXIM((EPSILON),(ABS(d1ohys[ihys])));
+            if((ABS(T[1][1]-stprev))>=dohyp)
+            { d1ohyt[ihys] = dctime;
+              d1ohys[ihys] = T[1][1];
+          } }
+          else if(i1ohyt[ihys]==(YFLDSZZ))
+          { d1ohyt[ihys] = dctime;
+            d1ohys[ihys] = R0;
+          }
+          else if(i1ohyt[ihys]==(YFLDSZX))
+          { d1ohyt[ihys] = dctime;
+            d1ohys[ihys] = R0;
+          }
+          else if(i1ohyt[ihys]==(YFLDSZY))
+          { d1ohyt[ihys] = dctime;
+            d1ohys[ihys] = R0;
+          }
+          else if(i1ohyt[ihys]==(YFLDVEL))
+          { stprev=MAXIM((EPSILON),(ABS(d1ohys[ihys])));
+            for(i=0; i<3; i++)
+            { V[i] = SQRT((d1nvcx[(i2elto[i][ielem])]*d1nvcx[(i2elto[i][ielem])])
+                         +(d1nvcy[(i2elto[i][ielem])]*d1nvcy[(i2elto[i][ielem])]));
+            }
+            if((ABS(((V[0]+V[1]+V[2])/R3)-stprev))>=dohyp)
+            { d1ohyt[ihys] = dctime;
+              d1ohys[ihys] = (V[0]+V[1]+V[2])/R3;  /* average velocity of element */
+          } }
+          else if(i1ohyt[ihys]==(YFLDVEX))
+          { stprev=MAXIM((EPSILON),(ABS(d1ohys[ihys])));
+            for(i=0; i<3; i++)
+            { V[i] = d1nvcx[(i2elto[i][ielem])];
+            }
+            if((ABS(((V[0]+V[1]+V[2])/R3)-stprev))>=dohyp)
+            { d1ohyt[ihys] = dctime;
+              d1ohys[ihys] = (V[0]+V[1]+V[2])/R3;  /* average velocity x of element */
+          } }
+          else if(i1ohyt[ihys]==(YFLDVEY))
+          { stprev=MAXIM((EPSILON),(ABS(d1ohys[ihys])));
+            for(i=0; i<3; i++)
+            { V[i] = d1nvcy[(i2elto[i][ielem])];
+            }
+            if((ABS(((V[0]+V[1]+V[2])/R3)-stprev))>=dohyp)
+            { d1ohyt[ihys] = dctime;
+              d1ohys[ihys] = (V[0]+V[1]+V[2])/R3;  /* average velocity y of element */
+      } } } }
+
+      /* Nodal Forces */
+      for(i=0;i<3;i++)
+      { j=i+1; if(j>2)j=0;
+        k=j+1; if(k>2)k=0;
+        in=i2elto[i][ielem];
+        jn=i2elto[j][ielem];
+        kn=i2elto[k][ielem];
+
+        nx=d1nccy[kn]-d1nccy[jn];
+        ny=d1nccx[jn]-d1nccx[kn];
+        d1nmct[in]=d1nmct[in]+dpero*voli/R6;
+        d1nfcx[in]=d1nfcx[in]+(T[0][0]*nx+T[0][1]*ny)/R2;
+        d1nfcy[in]=d1nfcy[in]+(T[1][0]*nx+T[1][1]*ny)/R2;
+       /* Nodal Forces due to edge force*/
+        jnopr=i1nopr[jn];
+        knopr=i1nopr[kn];
+        if( ((DABS(d1pnap[jnopr]))>EPSILON)&&
+            ((DABS(d1pnap[knopr]))>EPSILON) )
+        { d1nfcx[jn]=d1nfcx[jn]-
+          d1pnap[jnopr]*d1pnaf[jnopr]*nx/R3-
+          d1pnap[knopr]*d1pnaf[knopr]*nx/R6;
+          d1nfcy[jn]=d1nfcy[jn]-
+          d1pnap[jnopr]*d1pnaf[jnopr]*ny/R3-
+          d1pnap[knopr]*d1pnaf[knopr]*ny/R6;
+          d1nfcx[kn]=d1nfcx[kn]-
+          d1pnap[jnopr]*d1pnaf[jnopr]*nx/R6-
+          d1pnap[knopr]*d1pnaf[knopr]*nx/R3;
+          d1nfcy[kn]=d1nfcy[kn]-
+          d1pnap[jnopr]*d1pnaf[jnopr]*ny/R6-
+          d1pnap[knopr]*d1pnaf[knopr]*ny/R3;
+        }
+        if( ((DABS(d1pnat[jnopr]))>EPSILON)&&
+            ((DABS(d1pnat[knopr]))>EPSILON) )
+        { d1nfcx[jn]=d1nfcx[jn]-
+          d1pnat[jnopr]*d1pnaf[jnopr]*ny/R3-
+          d1pnat[knopr]*d1pnaf[knopr]*ny/R6;
+          d1nfcy[jn]=d1nfcy[jn]+
+          d1pnat[jnopr]*d1pnaf[jnopr]*nx/R3+
+          d1pnat[knopr]*d1pnaf[knopr]*nx/R6;
+          d1nfcx[kn]=d1nfcx[kn]-
+          d1pnat[jnopr]*d1pnaf[jnopr]*ny/R6-
+          d1pnat[knopr]*d1pnaf[knopr]*ny/R3;
+          d1nfcy[kn]=d1nfcy[kn]+
+          d1pnat[jnopr]*d1pnaf[jnopr]*nx/R6+
+          d1pnat[knopr]*d1pnaf[knopr]*nx/R3;
+        }
+      }
+    }
+  }
+}
+
+static void Yfd2TRISOF(  /* small strain softening triangle  */
+            nelem,
+            iprop,
+            dpeks,dpela ,dpemu ,dpero ,
+            dpsem,
+            d1nccx,d1nccy,d1ncix,d1nciy,d1nfcx,
+            d1nfcy,d1nmct,d1nvcx,d1nvcy,d1sdel,
+            i1elpr,i2elto,d1elfs, d3tcs
+            )
+  INT    nelem;
+  INT    iprop;
+  DBL    dpeks; DBL    dpela; DBL   dpemu; DBL   dpero;
+  DBL   dpsem;
+  DBL *d1nccx; DBL  *d1nccy; DBL *d1ncix; DBL  *d1nciy; DBL *d1nfcx;
+  DBL *d1nfcy; DBL  *d1nmct; DBL *d1nvcx; DBL  *d1nvcy; DBL *d1sdel;
+  INT *i1elpr; INT **i2elto; DBL *d1elfs;
+  DBL ***d3tcs;
+{ DBL nx,ny,voli,volc,emax,dmax,dmas;
+  DBL  B[2][2]; /* left Cauchy-Green strain tensor */
+  DBL  D[2][2]; /* rate of deformation (stretching) tensor */
+  DBL  E[2][2]; /* strain tensor (small strains) */
+  DBL  F[2][2]; /* deformation gradient in global base */
+  DBL F0[2][2]; /* initial local base */
+  DBL FX[2][2]; /* current local base */
+  DBL F0inv[2][2]; /* global base in initial local base */
+  DBL FXinv[2][2]; /* global base in current local base */
+  DBL  L[2][2]; /* velocity gradient in global base */
+  DBL LX[2][2]; /* vel. gradient in current local base = delta x/delta X */
+  DBL  T[2][2]; /* Cauchy stress */
+  INT ielem;
+  INT i,j,k;
+  DBL dpefs;
+
+  for(ielem=0;ielem<nelem;ielem++)
+  { if(i1elpr[ielem]==iprop)
+    { dpefs=d1elfs[ielem];
+      for(i=1;i<3;i++)
+      { F0[0][i-1]=d1ncix[(i2elto[i][ielem])]-d1ncix[(i2elto[0][ielem])];
+        F0[1][i-1]=d1nciy[(i2elto[i][ielem])]-d1nciy[(i2elto[0][ielem])];
+        FX[0][i-1]=d1nccx[(i2elto[i][ielem])]-d1nccx[(i2elto[0][ielem])];
+        FX[1][i-1]=d1nccy[(i2elto[i][ielem])]-d1nccy[(i2elto[0][ielem])];
+        LX[0][i-1]=d1nvcx[(i2elto[i][ielem])]-d1nvcx[(i2elto[0][ielem])];
+        LX[1][i-1]=d1nvcy[(i2elto[i][ielem])]-d1nvcy[(i2elto[0][ielem])];
+      }
+      YMATINV2(F0,F0inv,voli);
+      YMATINV2(FX,FXinv,volc);
+      for(i=0;i<2;i++)
+      { for(j=0;j<2;j++)
+        { F[i][j]=R0;
+          L[i][j]=R0;
+          for(k=0;k<2;k++)
+          { F[i][j]=F[i][j]+FX[i][k]*F0inv[k][j];
+            L[i][j]=L[i][j]+LX[i][k]*FXinv[k][j];
+      } } }
+      for(i=0;i<2;i++)
+      { for(j=0;j<2;j++)
+        { B[i][j]=R0;
+          for(k=0;k<2;k++)
+          { B[i][j]=B[i][j]+F[i][k]*F[j][k]; /* left Cauchy-Green strain */
+          }
+          D[i][j]=RP5*(L[i][j]+L[j][i]);     /* rate of deformation      */
+          E[i][j]=RP5*B[i][j];               /* small strain             */
+          if(i==j)E[i][j]=E[i][j]-RP5;
+      } }
+      emax=MAXIM(R1,SQRT(((B[0][0]+B[1][1])+
+                    SQRT((B[0][0]-B[1][1])*(B[0][0]-B[1][1])+
+                              R4*B[1][0]*B[0][1]))*RP5));
+      if(d1sdel[ielem]>(-EPSILON))
+      { d1sdel[ielem]=MAXIM(d1sdel[ielem],((emax-R1)/dpsem));
+        dmax=d1sdel[ielem];
+        dmax=MINIM(R1,dmax*dmax*dmax);
+        dmas=R1;
+      }
+      else
+      { dmax=0.0; dmas=R1/(dpefs*dpefs);
+      }
+      for(i=0;i<2;i++)     /* Cauchy stress T=2*mu*E+lamda*trace(E) */
+      { for(j=0;j<2;j++)
+        { T[i][j]=(R1-dmax)*
+                  (R2*dpemu*E[i][j]*(voli/volc)+dpeks*D[i][j]);
+          if(i==j)
+          { if(volc<voli)
+            { T[i][j]=T[i][j]+dpela*(volc/voli-voli/volc)*RP5;
+            }
+            else
+            { T[i][j]=T[i][j]+(R1-dmax)*dpela*(volc/voli-voli/volc);
+      } } } }
+
+      for(i=0;i<2;i++) /* for output - 2011-10-24 20:50:27 Z.LEI*/
+      { for(j=0;j<2;j++)
+        { d3tcs[i][j][ielem]=T[i][j];
+        }
+      }      
+      for(i=0;i<3;i++)      /* Nodal Forces due to stress */
+      { j=i+1; if(j>2)j=0;
+        k=j+1; if(k>2)k=0;
+        nx=d1nccy[(i2elto[k][ielem])]-d1nccy[(i2elto[j][ielem])];
+        ny=d1nccx[(i2elto[j][ielem])]-d1nccx[(i2elto[k][ielem])];
+        d1nmct[(i2elto[i][ielem])]=
+               d1nmct[(i2elto[i][ielem])]+dmas*dpero*voli/R6;
+        d1nfcx[(i2elto[i][ielem])]=d1nfcx[(i2elto[i][ielem])]+
+        (T[0][0]*nx+T[0][1]*ny)/R2;
+        d1nfcy[(i2elto[i][ielem])]=d1nfcy[(i2elto[i][ielem])]+
+        (T[1][0]*nx+T[1][1]*ny)/R2;
+      }
+} } }
+
+static void Yfd2JOINTS(  /* joint element */
+            nelem, iprop,
+            dpeft, dpegf,
+            dpeco, dpefr, dpepe,
+            d1nccx,d1nccy,d1nfcx,d1nfcy,d1nvcx,
+            d1nvcy,
+            i1elpr,i2elto,d1elfs
+            )
+  INT   nelem; INT   iprop;
+  DBL   dpeft; DBL   dpegf;
+  DBL   dpeco; DBL   dpefr; DBL   dpepe;
+  DBL *d1nccx; DBL *d1nccy; DBL *d1nfcx; DBL *d1nfcy;
+  DBL *d1nvcx; DBL *d1nvcy;
+  INT *i1elpr; INT **i2elto; DBL *d1elfs;
+{ DBL dpefa=0.63;
+  DBL dpefb=1.8;
+  DBL dpefc=6.0;
+  DBL dpefm=0.0;
+  DBL small,sabs,o,s,o1,o2,s1,s2,op,sp,ot,st,z,sigma,tau;
+  DBL e1x,e1y,h,area;
+  INT ielem,integ,i0,i1,i2,i3,nfail;
+  INT nsoft;
+  DBL dpefs;
+
+  small=EPSILON; nsoft=0;
+  for(ielem=0;ielem<nelem;ielem++)
+  { if(i1elpr[ielem]==iprop)
+    { dpefs=d1elfs[ielem];
+      i0=i2elto[0][ielem];
+      i1=i2elto[1][ielem];
+      i2=i2elto[2][ielem];
+      i3=i2elto[3][ielem];
+      e1x=RP5*(d1nccx[i1]+d1nccx[i2]-d1nccx[i0]-d1nccx[i3]);
+      e1y=RP5*(d1nccy[i1]+d1nccy[i2]-d1nccy[i0]-d1nccy[i3]);
+      h=SQRT(e1x*e1x+e1y*e1y);
+      e1x=e1x/(h+small);
+      e1y=e1y/(h+small);
+      s1=(d1nccy[i0]-d1nccy[i3])*e1y+(d1nccx[i0]-d1nccx[i3])*e1x;
+      s2=(d1nccy[i1]-d1nccy[i2])*e1y+(d1nccx[i1]-d1nccx[i2])*e1x;
+      o1=(d1nccy[i0]-d1nccy[i3])*e1x-(d1nccx[i0]-d1nccx[i3])*e1y;
+      o2=(d1nccy[i1]-d1nccy[i2])*e1x-(d1nccx[i1]-d1nccx[i2])*e1y;
+      op=R2*h*dpeft/dpepe;
+      sp=R2*h*dpefs/dpepe;
+      ot=MAXIM((R2*op),(R3*dpegf/dpeft));
+      st=MAXIM((R2*sp),(R3*dpegf/dpefs));
+      nfail=0;
+
+      for(integ=0;integ<3;integ++)
+      { if(integ==0)
+        { o=o1; s=s1;
+        }
+        else if(integ==2)
+        { o=o2; s=s2;
+        }
+        else
+        { o=RP5*(o1+o2); s=RP5*(s1+s2);
+        }
+        sabs=ABS(s);
+        if((o>op)&&(sabs>sp))
+        { z=SQRT(((o-op)/ot)*((o-op)/ot)+((sabs-sp)/st)*((sabs-sp)/st));
+        }
+        else if(o>op)
+        { z=(o-op)/ot;
+        }
+        else if(sabs>sp)
+        { z=(sabs-sp)/st;
+        }
+        else
+        { z=R0;
+        }
+        if(z>=R1)
+        { nfail=nfail+1;
+          if((nfail>1)&&(i1elpr[ielem]>=0))
+          i1elpr[ielem]=-1-YIPROPMAX;
+          z=R1;
+        }
+        z=(R1- ((dpefa+dpefb-R1)/(dpefa+dpefb))*
+          exp(z*(dpefa+dpefc*dpefb)/((dpefa+dpefb)*(R1-dpefa-dpefb))))
+          *(dpefa*(R1-z)+dpefb*pow((R1-z),dpefc));
+        if(o<R0)           /* normal stress */
+        { sigma=R2*o*dpeft/op; /* sigma=R0; */
+        }
+        else if(o>op)
+        { sigma=dpeft*z; nsoft=nsoft+1;
+        }
+        else
+        { sigma=(R2*o/op-(o/op)*(o/op))*z*dpeft;
+        }
+        /* take into account Mohr-Coulomb   */
+        if(dpeco>R0)
+        { if(sigma>R0)
+          { dpefs=dpeco;
+          }
+          else
+          { dpefs=dpeco-sigma*dpefr;
+        } }
+        if((sigma>R0)&&(sabs>sp))           /* shear stress */
+        { tau=z*dpefs;
+        }
+        else if(sigma>R0)
+        { tau=(R2*(sabs/sp)-(sabs/sp)*(sabs/sp))*z*dpefs;
+        }
+        else if(sabs>sp)
+        { tau=z*dpefs-dpefm*sigma;
+        }
+        else
+        { tau=(R2*(sabs/sp)-(sabs/sp)*(sabs/sp))*(z*dpefs-dpefm*sigma);
+        }
+        d1elfs[ielem]=dpefs;    /* update fs to Mohr-Coulomb    */
+        if(s<R0)tau=-tau;
+        if(integ==0)  /* nodal forces */
+        { area=h/R6; /* area=h/6.0; */
+          d1nfcx[i0]=d1nfcx[i0]-area*(tau*e1x-sigma*e1y);
+          d1nfcx[i3]=d1nfcx[i3]+area*(tau*e1x-sigma*e1y);
+          d1nfcy[i0]=d1nfcy[i0]-area*(tau*e1y+sigma*e1x);
+          d1nfcy[i3]=d1nfcy[i3]+area*(tau*e1y+sigma*e1x);
+        }
+        else if(integ==1)
+        { area=h/R3;  /* area=h/3.0; */
+          d1nfcx[i0]=d1nfcx[i0]-area*(tau*e1x-sigma*e1y);
+          d1nfcx[i3]=d1nfcx[i3]+area*(tau*e1x-sigma*e1y);
+          d1nfcy[i0]=d1nfcy[i0]-area*(tau*e1y+sigma*e1x);
+          d1nfcy[i3]=d1nfcy[i3]+area*(tau*e1y+sigma*e1x);
+          d1nfcx[i1]=d1nfcx[i1]-area*(tau*e1x-sigma*e1y);
+          d1nfcx[i2]=d1nfcx[i2]+area*(tau*e1x-sigma*e1y);
+          d1nfcy[i1]=d1nfcy[i1]-area*(tau*e1y+sigma*e1x);
+          d1nfcy[i2]=d1nfcy[i2]+area*(tau*e1y+sigma*e1x);
+        }
+        else
+        { area=h/R6; /* area=h/6.0; */
+          d1nfcx[i1]=d1nfcx[i1]-area*(tau*e1x-sigma*e1y);
+          d1nfcx[i2]=d1nfcx[i2]+area*(tau*e1x-sigma*e1y);
+          d1nfcy[i1]=d1nfcy[i1]-area*(tau*e1y+sigma*e1x);
+          d1nfcy[i2]=d1nfcy[i2]+area*(tau*e1y+sigma*e1x);
+        }
+      }
+    }
+  }
+}
+
+/**************** 3D ********************************************/
+static void Yfd3TET4ELS( fcheck, ncstep, /* small strain elastic 4-nodes tetrahetra  */
+                         nelem,  iprop, 
+                         dpeks,  dpela,  dpemu,  dpero,
+                         d1nccx, d1nccy, d1nccz,
+                         d1ncix, d1nciy, d1nciz,
+                         d1nfcx, d1nfcy, d1nfcz, d1nmct,
+                         d1nvcx, d1nvcy, d1nvcz,
+                         i1elpr, i2elto, d3tcs
+                       )
+  FILE *fcheck; INT ncstep;
+  INT   nelem;  INT   iprop;
+  DBL   dpeks;  DBL   dpela;  DBL   dpemu;  DBL   dpero;  
+  DBL *d1nccx;  DBL *d1nccy;  DBL *d1nccz;  DBL *d1ncix;  DBL  *d1nciy;
+  DBL *d1nciz;  DBL *d1nfcx;  DBL *d1nfcy;  DBL *d1nfcz;  DBL  *d1nmct;
+  DBL *d1nvcx;  DBL *d1nvcy;  DBL *d1nvcz;  INT *i1elpr;  INT **i2elto;
+  DBL ***d3tcs;
+{ DBL nx,ny,nz,voli,volc;
+  DBL  B[3][3]; /* left Cauchy-Green strain tensor */
+  DBL  D[3][3]; /* rate of deformation (stretching) tensor */
+  DBL  E[3][3]; /* strain tensor (small strains) */
+  DBL  F[3][3]; /* deformation gradient in global base delta ux/delta x */
+  DBL F0[3][3]; /* initial local base */
+  DBL FX[3][3]; /* current local base  also delta ux/delta X */
+  DBL F0inv[3][3]; /* global base in initial local base */
+  DBL FXinv[3][3]; /* global base in current local base */
+  DBL  L[3][3]; /* velocity gradient in global base  delta vx/delta x    */
+  DBL LX[3][3]; /* velocity gradient in current local base = delta x/delta X */
+  DBL  T[3][3]; /* Cauchy stress */
+  INT ielem;
+  INT i,j,k,l;
+  FILE *fptr=FILENULL;
+  for(ielem=0;ielem<nelem;ielem++)
+  { if(i1elpr[ielem]==iprop)
+    { for(i=1;i<4;i++)
+      { F0[0][i-1]=d1ncix[(i2elto[i][ielem])]-d1ncix[(i2elto[0][ielem])]; /* init. base */
+        F0[1][i-1]=d1nciy[(i2elto[i][ielem])]-d1nciy[(i2elto[0][ielem])];
+        F0[2][i-1]=d1nciz[(i2elto[i][ielem])]-d1nciz[(i2elto[0][ielem])];
+        FX[0][i-1]=d1nccx[(i2elto[i][ielem])]-d1nccx[(i2elto[0][ielem])]; /* curr. base */
+        FX[1][i-1]=d1nccy[(i2elto[i][ielem])]-d1nccy[(i2elto[0][ielem])];
+        FX[2][i-1]=d1nccz[(i2elto[i][ielem])]-d1nccz[(i2elto[0][ielem])];
+        LX[0][i-1]=d1nvcx[(i2elto[i][ielem])]-d1nvcx[(i2elto[0][ielem])]; /* vel. grad. */
+        LX[1][i-1]=d1nvcy[(i2elto[i][ielem])]-d1nvcy[(i2elto[0][ielem])];
+        LX[2][i-1]=d1nvcz[(i2elto[i][ielem])]-d1nvcz[(i2elto[0][ielem])];
+      }  
+      YMATINV3(F0,F0inv,voli);         /* global base in initial local coordinates    */
+      YMATINV3(FX,FXinv,volc);         /* global base in current local coordinates    */
+      if(volc<=R0)
+      {  for(i=0; i<2; i++)
+        { fptr=stdout;  if(i==1) fptr = fcheck;
+          INTw(fptr,ncstep,10); CHRwsp(fptr); CHRwsp(fptr);
+          CHRw(fptr,"Negative Jacobian for element ");
+          INTw(fptr,ielem,5);
+          CHRwcr(fptr);
+      } }
+      for(i=0;i<3;i++)
+      { for(j=0;j<3;j++)
+        { F[i][j]=R0;
+          L[i][j]=R0;
+          for(k=0;k<3;k++)
+          { F[i][j]=F[i][j]+FX[i][k]*F0inv[k][j]; /* deformation gradient  */
+            L[i][j]=L[i][j]+LX[i][k]*FXinv[k][j]; /* velocity gradient     */
+      } } }
+      for(i=0;i<3;i++)
+      { for(j=0;j<3;j++)
+        { B[i][j]=R0;
+          for(k=0;k<3;k++)
+          { B[i][j]=B[i][j]+F[i][k]*F[j][k];  /* left Cauchy-Green strain B=FF' */
+          }
+          D[i][j]=RP5*(L[i][j]+L[j][i]);      /* rate of deformation       */
+          if(i==j)
+          { E[i][j]=RP5*(B[i][j]-R1);         /* small strain              */
+          }
+          else
+          { E[i][j]=RP5*B[i][j];
+      } } }
+      for(i=0;i<3;i++)     /* Cauchy stress */
+      { for(j=0;j<3;j++)
+        { T[i][j]=(R2*dpemu*E[i][j])*(voli/volc)+dpeks*D[i][j];
+          if(i==j)T[i][j]=T[i][j]+dpela*(volc/voli-voli/volc)*RP5;
+          d3tcs[i][j][ielem]=T[i][j];
+      } }
+      for(i=0;i<4;i++)      /* Nodal Forces */
+      { j=i+1; if(j>3)j=0;
+        k=j+1; if(k>3)k=0;
+        l=k+1; if(l>3)l=0;
+        nx=((d1nccy[(i2elto[k][ielem])]-d1nccy[(i2elto[j][ielem])])*
+            (d1nccz[(i2elto[l][ielem])]-d1nccz[(i2elto[j][ielem])])-
+            (d1nccy[(i2elto[l][ielem])]-d1nccy[(i2elto[j][ielem])])*
+            (d1nccz[(i2elto[k][ielem])]-d1nccz[(i2elto[j][ielem])]))/R6;
+        ny=((d1nccz[(i2elto[k][ielem])]-d1nccz[(i2elto[j][ielem])])*
+            (d1nccx[(i2elto[l][ielem])]-d1nccx[(i2elto[j][ielem])])-
+            (d1nccx[(i2elto[k][ielem])]-d1nccx[(i2elto[j][ielem])])*
+            (d1nccz[(i2elto[l][ielem])]-d1nccz[(i2elto[j][ielem])]))/R6; 
+        nz=((d1nccx[(i2elto[k][ielem])]-d1nccx[(i2elto[j][ielem])])*
+            (d1nccy[(i2elto[l][ielem])]-d1nccy[(i2elto[j][ielem])])-
+            (d1nccy[(i2elto[k][ielem])]-d1nccy[(i2elto[j][ielem])])*
+            (d1nccx[(i2elto[l][ielem])]-d1nccx[(i2elto[j][ielem])]))/R6;
+        /*d1nmct[(i2elto[i][ielem])]=d1nmct[(i2elto[i][ielem])]+dpero*voli/R6;*/
+        d1nmct[(i2elto[i][ielem])]=d1nmct[(i2elto[i][ielem])]+dpero*voli/R24;
+        if((i==0)||(i==2))
+        { d1nfcx[(i2elto[i][ielem])]=d1nfcx[(i2elto[i][ielem])]+
+                                    (T[0][0]*nx+T[0][1]*ny+T[0][2]*nz);
+          d1nfcy[(i2elto[i][ielem])]=d1nfcy[(i2elto[i][ielem])]+
+                                    (T[1][0]*nx+T[1][1]*ny+T[1][2]*nz);
+          d1nfcz[(i2elto[i][ielem])]=d1nfcz[(i2elto[i][ielem])]+
+                                    (T[2][0]*nx+T[2][1]*ny+T[2][2]*nz); 
+        }
+        else
+        { d1nfcx[(i2elto[i][ielem])]=d1nfcx[(i2elto[i][ielem])]-
+                                    (T[0][0]*nx+T[0][1]*ny+T[0][2]*nz);
+          d1nfcy[(i2elto[i][ielem])]=d1nfcy[(i2elto[i][ielem])]-
+                                    (T[1][0]*nx+T[1][1]*ny+T[1][2]*nz);
+          d1nfcz[(i2elto[i][ielem])]=d1nfcz[(i2elto[i][ielem])]-
+                                    (T[2][0]*nx+T[2][1]*ny+T[2][2]*nz); 
+  } } } }
+}
+  
+static void Yfd3JOINTSL( /* 6-nodes joint element with 4-nodes tetrahedra */
+            ncstep, iprop, nprop, yde, ydn, ydi, ydpj
+            )            /* Implemented by Zhou LEI, 01/05/2010           */
+  INT const ncstep; INT const iprop; INT const nprop;  
+  YDE yde; YDN ydn; YDI ydi; YDPJ ydpj;
+  #define NNODE 3  
+  { DBL const dpefa=0.63;
+    DBL const dpefb=1.8;
+    DBL const dpefc=6.0;
+    DBL const dpefm=0.0;
+    DBL PosGauss3[3][3] = {R2/R3, R1/R6, R1/R6,   R1/R6, R2/R3, R1/R6,
+                           R1/R6, R1/R6, R2/R3};
+    DBL weight3[3] = {R1/R3, R1/R3, R1/R3};
+    DBL PosGauss7[7][3] = {0.3333333333, 0.3333333333,  0.3333333333,
+                           0.0597158717, 0.4701420641,  0.4701420641,
+                           0.4701420641, 0.0597158717,  0.4701420641,
+                           0.4701420641, 0.4701420641,  0.0597158717, 
+                           0.7974269853, 0.1012865073,  0.1012865073,
+                           0.1012865073, 0.7974269853,  0.1012865073,
+                           0.1012865073, 0.1012865073,  0.7974269853
+                           };
+    DBL weight7[7] = {0.225, 0.1323941527, 0.1323941527, 0.1323941527, 
+                      0.1259391805, 0.1259391805, 0.1259391805};
+    INT   nelem, IDprop, NP, mfail;
+    INT *i1elpr, **i2elto, **i2elcn, *i1elcf, *i1iecn, *i1iect;
+    INT *i0iecff, *i1nobf, *i1niid, *i1ncnp;
+    DBL **d2ncc, **d2nft;    
+    DBL dpefs, dpeft, dpegf, dpepe;
+    DBL op0, ot0, sp0, st0, op, sp, ot, st, h;
+    
+    FILE *fptr=NULL;
+    INT i, j, ip, idu, idl, id, iid, eid0, eid1, icoup, itag;
+    INT ielem, nfail, nsoft;
+    INT IdMU[NNODE], IdML[NNODE];
+    DBL PosMU[NNODE][3], PosML[NNODE][3], PosBS[NNODE][3], PosRD[NNODE][3];
+    DBL v1[3], v2[3], h1, h2, h3, shap[NNODE], (*PosGauss)[3], *weight;
+    DBL rdis[3], vnor[3], area; /*xi, eta, zeta;*/
+    DBL o, s, z, se[3], sigma, tau, trac, fnt[NNODE][3];
+    
+    nelem  = yde->nelem;
+    i1elpr = yde->i1elpr;
+    i1elcf = yde->i1elcf;
+    i2elto = yde->i2elto;
+    i2elcn = yde->i2elcn;
+    IDprop = iprop + nprop;
+    
+    d2ncc  = ydn->d2ncc;
+    d2nft  = ydn->d2nft;
+    i1nobf = ydn->i1nobf;
+    i1niid = ydn->i1niid;
+    i1ncnp = ydn->i1ncnp;
+    
+    i0iecff= &(ydi->iiecff);
+    i1iecn = ydi->i1iecn;
+    i1iect = ydi->i1iect;
+    
+    dpefs  = ydpj->d1pjfs[iprop];
+    dpeft  = ydpj->d1pjft[iprop];
+    dpegf  = ydpj->d1pjgf[iprop];
+    dpepe  = ydpj->d1pjpe[iprop];
+    
+    op0 = R2*dpeft/dpepe; ot0 = R3*dpegf/dpeft;
+    sp0 = R2*dpefs/dpepe; st0 = R3*dpegf/dpefs;
+    NP = ydpj->nintpt;
+    
+    /* chose nb. of interation points for joint elements */
+    switch(NP)
+    { case(3):
+       PosGauss = PosGauss3;
+       weight = weight3;
+       mfail = 2;
+       break;
+      case(7):
+       PosGauss = PosGauss7;
+       weight = weight7;
+       mfail = 4;
+       break;
+      default:
+       fptr=stderr;
+       CHRw(fptr,"mismatch intergration method for joint elements.");
+       INTw(fptr,NP,5);
+       CHRwcr(fptr);
+    }
+    
+    /* copy the coordinate of the nodes on the upper & lower surface */
+    for(ielem=0; ielem<nelem; ielem++)
+    { if(i1elpr[ielem]!=IDprop) continue;
+      
+      for(i=0; i<NNODE; i++)
+      { IdMU[i] = i2elto[i][ielem];        /* nodal ID */
+        IdML[i] = i2elto[i+NNODE][ielem];
+        for(j=0; j<3; j++)
+        { PosMU[i][j] = d2ncc[j][IdMU[i]]; /* coor. on the upper surface */
+          PosML[i][j] = d2ncc[j][IdML[i]]; /* coor. on the lower sufrace */
+          PosBS[i][j] = RP5*(PosMU[i][j]+PosML[i][j]); /* on the middle  */
+          PosRD[i][j] = PosMU[i][j]-PosML[i][j]; /* relative displacement */
+          fnt[i][j] = R0;
+        }
+      }
+      
+      /* calculate element size */
+      for(j=0; j<3; j++) 
+      { v1[j] = PosBS[1][j] - PosBS[0][j];
+        v2[j] = PosBS[2][j] - PosBS[0][j];
+      }
+      V3DLen(h1, v1[0], v1[1], v1[2]);
+      V3DLen(h2, v2[0], v2[1], v2[2]);
+      V3DLen(h3, v2[0]-v1[0], v2[1]-v1[1], v2[2]-v1[2]);
+      h=MINIM(h1, h2); h=MINIM(h, h3); /* element size */ 
+      op = op0*h;
+      sp = sp0*h;
+      ot=MAXIM((R2*op),ot0);
+      st=MAXIM((R2*sp),st0);
+      
+      /* normal vector & Jacobian of the transformation between (xi, eta) & (x,y,z) */
+      V3DCro(vnor[0], vnor[1], vnor[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2]);
+      V3DNor(area, vnor[0], vnor[1], vnor[2]);
+      area = RP5*area;
+      
+      nfail = 0;
+      for(ip=0; ip<NP; ip++)
+      { /* integration point */
+        /* xi = PosGauss[ip][0];  eta= PosGauss[ip][1];   zeta=PosGauss[ip][2]; */
+        
+        /* shape function */
+        /* zeta = R1-xi-eta;   shap[0] = zeta;  shap[1] = xi;  shap[2] = eta;*/
+        shap[0] = PosGauss[ip][2];
+        shap[1] = PosGauss[ip][0];
+        shap[2] = PosGauss[ip][1];
+        
+        /* relative displacement of the integration point */
+        for(i=0; i<3; i++)
+        { rdis[i]=0.0;
+          for(j=0; j<3; j++)
+          { rdis[i] = shap[j]*PosRD[j][i]+rdis[i];
+          }
+        }
+        
+        /* normal separation */
+        V3DDot(o, rdis[0], rdis[1], rdis[2], vnor[0], vnor[1], vnor[2]);
+        
+        for(j=0; j<3; j++) /* slide distence vector, se */
+        { se[j]=rdis[j]-o*vnor[j];
+        }
+        V3DNor(s, se[0], se[1], se[2]);
+        
+        if((o>op)&&(s>sp))
+        { z=SQRT(((o-op)/ot)*((o-op)/ot)+((s-sp)/st)*((s-sp)/st));
+        }
+        else if(o>op)
+        { z=(o-op)/ot;
+        }
+        else if(s>sp)
+        { z=(s-sp)/st;
+        }
+        else
+        { z=R0;
+        }
+        if(z>=R1) /* failure */
+        { nfail=nfail+1;
+          if((nfail>mfail)&&(i1elpr[ielem]>=0))
+          { i1elpr[ielem]=iprop-YIPROPMAX;
+            /* set the propety of nodes near to the crack as a boundary node */
+            for(i=0; i<3; i++)
+            { id = IdMU[i];
+              iid = i1niid[id];
+              while(1)
+              { id=Get_from_INT1(i1ncnp, iid);
+                if(id==-1) break;
+                i1nobf[id]=1;
+              }
+            }
+            /* add the neighboring element into contact list */              
+            eid0=MAXIM(i2elcn[0][ielem], i2elcn[1][ielem]);
+            eid1=MINIM(i2elcn[0][ielem], i2elcn[1][ielem]);
+            icoup = i1elcf[eid0];
+            itag = 0;
+            while(icoup >= 0)
+            {if(i1iect[icoup]==eid1)
+             { itag=1; 
+               break;
+             }
+             icoup = i1iecn[icoup];
+            }
+            if(itag == 0) /* if eid1 does not exist in the contact list of eid0 */
+            { id = *i0iecff;
+              *i0iecff = i1iecn[id];
+              i1iect[id] = eid1;
+              i1iecn[id]=i1elcf[eid0];
+              i1elcf[eid0]=id;
+            }
+          }
+          z=R1;
+        }
+        z=(R1- ((dpefa+dpefb-R1)/(dpefa+dpefb))*
+          exp(z*(dpefa+dpefc*dpefb)/((dpefa+dpefb)*(R1-dpefa-dpefb))))
+          *(dpefa*(R1-z)+dpefb*pow((R1-z),dpefc));
+        if(o<R0)           /* normal stress */
+        { sigma=R2*o*dpeft/op; /* sigma=R0; */
+        }
+        else if(o>op)
+        { sigma=dpeft*z; nsoft=nsoft+1;
+        }
+        else
+        { sigma=(R2*o/op-(o/op)*(o/op))*z*dpeft;
+        }
+        if((sigma>R0)&&(s>sp))           /* shear stress */
+        { tau=z*dpefs;
+        }
+        else if(sigma>R0)
+        { tau=(R2*(s/sp)-(s/sp)*(s/sp))*z*dpefs;
+        }
+        else if(s>sp)
+        { tau=z*dpefs-dpefm*sigma;
+        }
+        else
+        { tau=(R2*(s/sp)-(s/sp)*(s/sp))*(z*dpefs-dpefm*sigma);
+        }
+        
+        for(j=0; j<3; j++)
+        { trac = sigma*vnor[j]+tau*se[j];
+          for(i=0; i<NNODE; i++)
+          { fnt[i][j] = fnt[i][j] + weight[ip]*trac*shap[i]*area;
+          }
+        }
+        
+      }
+      
+      for(i=0; i<NNODE; i++)
+      { idu = IdMU[i];
+        idl = IdML[i];
+        for(j=0;j<3;j++)
+        { d2nft[j][idu] = d2nft[j][idu] - fnt[i][j];
+          d2nft[j][idl] = d2nft[j][idl] + fnt[i][j];
+        }
+      }
+      
+    }
+  #undef NNODE
+  }  
+/*********************PUBLIC*************************************/
+void Yfd(   ydc,  yde,  ydn, ydi,  ydo,  ydpe, ydpn, ydpj    /***  nodal forces  ***/
+        )
+  YDC ydc; YDE yde; YDN ydn; YDI ydi; YDO ydo; YDPE ydpe; YDPN ydpn; YDPJ ydpj;
+{ INT iprop,inopo,jprop;
+  INT ielem, i, j;
+  static INT itime=0;
+  static INT pmcstep=0; /* previous maximum number of time steps */
+  /* init. shear strength from joint database */
+  if(ydc->ncstep==0 || ydc->ncstep==pmcstep || itime==0)
+  { pmcstep=ydc->mcstep;  itime = 1;
+    if(ydpj->npjset>0)
+    { yde->d1elfs=TalDBL1(yde->melem);
+      for(ielem=0;ielem<yde->melem;ielem++)
+      { if(yde->i1elpr[ielem]>=ydpe->nprop)  /* joints   */
+        { jprop=yde->i1elpr[ielem]-ydpe->nprop;
+          if((ydpj->i1ptyp[jprop])==(YTE2JOINTS))
+          { if(ydpj->d1pjfs[jprop]>R0)
+            { yde->d1elfs[ielem]=ydpj->d1pjfs[jprop];
+            }
+            else
+            { yde->d1elfs[ielem]=ydpj->d1pjco[jprop];  
+        } } }
+        else if(yde->i1elpr[ielem]>=0)       /* trians   */
+        { iprop=yde->i1elpr[ielem];
+          if((ydpe->i1ptyp[iprop])==(YTE2TRISOF))
+          { yde->d1elfs[ielem]=ydpj->d1pjfs[ydpe->i1pejp[iprop]];
+  } } } } }
+  /* zero nodal forces and mases */
+  for(inopo=0;inopo<ydn->nnopo;inopo++)
+  { ydn->d1nmct[inopo]=R0;
+    if(ydn->nnodim>0)
+    { ydn->d2nfc[0][inopo]=R0;
+      ydn->d2nft[0][inopo]=R0;
+    }
+    if(ydn->nnodim>1)
+    { ydn->d2nfc[1][inopo]=R0;
+      ydn->d2nft[1][inopo]=R0;
+    }
+    if(ydn->nnodim>2)
+    { ydn->d2nfc[2][inopo]=R0;
+      ydn->d2nft[2][inopo]=R0;
+    }
+  }
+  for(ielem=0;ielem<yde->nelem;ielem++) 
+  { for(i=0;i<ydn->nnodim;i++)   
+    { for(j=0;j<ydn->nnodim;j++)   
+      { yde->d3tcs[i][j][ielem]=R0;
+      }
+    }
+  }
+  for(iprop=0;iprop<ydpe->nprop;iprop++)
+  { if((ydpe->i1ptyp[iprop])==(YTE2TRIELS))
+    { Yfd2TRIELS(   /* small strain elastic triangle  */
+      yde->nelem,
+      iprop,
+      ydpn->npnfact,ydpn->mpnset,ydpn->npnset,
+      ydpn->d3pnfac,
+      ydpe->d1peks[iprop],ydpe->d1pela[iprop],
+      ydpe->d1pemu[iprop],ydpe->d1pero[iprop],ydpe->d1psem[iprop],
+      ydn->d2ncc[0],ydn->d2ncc[1],ydn->d2nci[0],ydn->d2nci[1],ydn->d2nfc[0],
+      ydn->d2nfc[1],ydn->d1nmct  ,ydn->d2nvc[0],ydn->d2nvc[1],
+      ydpn->d1pnaf , ydpn->d1pnap  ,ydpn->d1pnat  ,
+      yde->i1elpr,ydn->i1nopr,yde->i2elto,
+      ydo->nohys, ydo->dohyp , ydc->dctime,
+      ydo->d1ohys, ydo->d1ohyt, ydo->d1ohyx, ydo->d1ohyy,
+      ydo->i1ohyt, ydpn->npnset,yde->d3tcs
+      );
+    }
+    else if((ydpe->i1ptyp[iprop])==(YTE2TRISOF))
+    { Yfd2TRISOF(   /* small strain softening triangle  */
+      yde->nelem,
+      iprop,      
+      ydpe->d1peks[iprop],ydpe->d1pela[iprop],
+      ydpe->d1pemu[iprop],ydpe->d1pero[iprop],ydpe->d1psem[iprop],
+      ydn->d2ncc[0],ydn->d2ncc[1],ydn->d2nci[0],ydn->d2nci[1],ydn->d2nfc[0],
+      ydn->d2nfc[1],ydn->d1nmct,ydn->d2nvc[0],ydn->d2nvc[1],
+      yde->d2elst[ydpe->i1psde[iprop]], 
+      yde->i1elpr,yde->i2elto, yde->d1elfs, yde->d3tcs
+      );
+    }
+    else if((ydpe->i1ptyp[iprop])==(YTE3TETELL))
+    { Yfd3TET4ELS(  /* small strain elastic 4-nodes tetrahetra  */
+      ydc->fcheck, ydc->ncstep,
+      yde->nelem,iprop,
+      ydpe->d1peks[iprop],ydpe->d1pela[iprop],
+      ydpe->d1pemu[iprop],ydpe->d1pero[iprop],
+      ydn->d2ncc[0],ydn->d2ncc[1],ydn->d2ncc[2],
+      ydn->d2nci[0],ydn->d2nci[1],ydn->d2nci[2],
+      ydn->d2nfc[0],ydn->d2nfc[1],ydn->d2nfc[2],ydn->d1nmct,
+      ydn->d2nvc[0],ydn->d2nvc[1],ydn->d2nvc[2],
+      yde->i1elpr,yde->i2elto,yde->d3tcs);
+    }
+  }
+
+  for(jprop=0;jprop<ydpj->npjset;jprop++)
+  { if((ydpj->i1ptyp[jprop])==(YTE2JOINTS))
+    { Yfd2JOINTS(  /* joint element  */
+      yde->nelem,(jprop+ydpe->nprop),
+      ydpj->d1pjft[jprop], ydpj->d1pjgf[jprop],
+      ydpj->d1pjco[jprop], ydpj->d1pjfr[jprop], ydpj->d1pjpe[jprop],
+      ydn->d2ncc[0],ydn->d2ncc[1],ydn->d2nfc[0],ydn->d2nfc[1],
+      ydn->d2nvc[0],ydn->d2nvc[1],
+      yde->i1elpr,yde->i2elto,yde->d1elfs
+      );
+    }
+    else if(ydpj->i1ptyp[jprop] == YTE3JOINTL)
+    { Yfd3JOINTSL(ydc->ncstep, jprop, ydpe->nprop, yde, ydn, ydi, ydpj);
+    }
+  }
+}
