@@ -1,0 +1,486 @@
+/* Copyright (C) 2000, Dr. Antonio Munjiza
+ *
+ * This code is provided as part of the book entitled "The Combined
+ * Finite Discrete Element Method". It is distributed WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. Inclusion of a part or whole of this code into any other
+ * commercial or research or other purpose code is not granted without author's
+ * written explicit permission.
+ * When results using whole or any part of this code
+ * are published, Y code must be mentioned and acknowledgement to Dr Munjiza must be made.
+ * Should you modify this source code, the Copyright (C) on the modified code
+ * as a whole belongs to Dr. A. Munjiza regardless of the extent or nature
+ * of modifications.
+ * Copyright (C) to whole of any code containing any part of this code
+ * also belongs to Dr. A.Munjiza.
+ * Any code comprising any part of this source code
+ * must be called Y program.
+ * If you do not agree with this, you are not allowed to do
+ * any modifications to any part of this source code or included
+ * any part of it in any other program.
+ */
+/* File   Ysd.c */
+#include "Yproto.h"
+/**********************SOLVERS*****************************************/
+static void Ysd2MEC(  nnopo,  /* mechanical solver for 2D nodes with x,y d.o.f.  */
+                      dcstec,dcgray, dctime,npnfact,ibc,
+                      d3pnfac,
+                      d1nccx,d1nccy,d1nfcx,d1nfcy,d1nmct,
+                      d1nvcx,d1nvcy,d1pnax,d1pnay,d1pnxx,
+                      d1pnxy,d1pnyx,d1pnyy,i1nopr,
+											i1pnfx,i1pnfy
+                    )
+  INT   nnopo;
+  DBL  dcstec;  DBL  dcgray;  DBL  dctime;  INT   npnfact;  INT ibc;
+  DBL ***d3pnfac;
+  DBL *d1nccx;  DBL *d1nccy;  DBL *d1nfcx;  DBL *d1nfcy;  DBL *d1nmct;
+  DBL *d1nvcx;  DBL *d1nvcy;  DBL *d1pnax;  DBL *d1pnay;  DBL *d1pnxx;
+  DBL *d1pnxy;  DBL *d1pnyx;  DBL *d1pnyy;  INT *i1nopr;
+	INT *i1pnfx;	INT *i1pnfy;
+{ INT inopo,i;
+  DBL T[2][2];
+  DBL Tinv[2][2];
+  DBL volc,vX,vY,aX,aY,fX,fY,fact;
+  DBL *d1time;
+  DBL *d1fact;
+
+  T[0][0]=d1pnxx[ibc];   /* local curvlinear base in global coordinates */
+  T[1][0]=d1pnxy[ibc];
+  T[0][1]=d1pnyx[ibc];
+  T[1][1]=d1pnyy[ibc];
+
+  aX=d1pnax[ibc];
+  aY=d1pnay[ibc];
+  fact=R1;
+  if(d3pnfac != DBL3NULL)
+  { if(d3pnfac[0][0][0] != -R1)
+    { d1time = d3pnfac[0][ibc];
+      d1fact = d3pnfac[1][ibc];
+      for(i=1; i<npnfact; i++)
+      { if((dctime>=d1time[i-1])&&(dctime<=d1time[i]))
+        { fact=d1fact[i-1]-((d1fact[i-1]-d1fact[i])*
+               ((dctime-d1time[i-1])/(d1time[i]-d1time[i-1])));
+  } } } }
+  aX=aX*fact;
+  aY=aY*fact;
+
+  YMATINV2(T,Tinv,volc);
+  for(inopo=0;inopo<nnopo;inopo++)
+  { if((i1nopr[inopo]==ibc)&&(d1nmct[inopo]>EPSILON))
+    {  /* velocity in local curvlinear coordinates */
+       vX=Tinv[0][0]*d1nvcx[inopo]+Tinv[0][1]*d1nvcy[inopo];
+       vY=Tinv[1][0]*d1nvcx[inopo]+Tinv[1][1]*d1nvcy[inopo];
+       fX=Tinv[0][0]*d1nfcx[inopo]+
+          Tinv[0][1]*(d1nfcy[inopo]+dcgray*d1nmct[inopo]);
+       fY=Tinv[1][0]*d1nfcx[inopo]+
+          Tinv[1][1]*(d1nfcy[inopo]+dcgray*d1nmct[inopo]);
+       /* solve equations in local coordinates */
+       if(i1pnfx[ibc]==1)      /* supplied force        */
+       { vX=vX+((aX+fX)/d1nmct[inopo])*dcstec;
+       }
+       else if(i1pnfx[ibc]==2) /* supplied acceleration */
+       { vX=vX+(aX+fX/d1nmct[inopo])*dcstec;
+       }
+       else if(i1pnfx[ibc]==3) /* supplied velocity     */
+       { vX=aX;
+       }
+       if(i1pnfy[ibc]==1)
+       { vY=vY+((aY+fY)/d1nmct[inopo])*dcstec;
+       }
+       else if(i1pnfy[ibc]==2)
+       { vY=vY+(aY+fY/d1nmct[inopo])*dcstec;
+       }
+       else if(i1pnfy[ibc]==3)
+       { vY=aY;
+       }
+       /* velocity back to global coordinates */
+       d1nvcx[inopo]=T[0][0]*vX+T[0][1]*vY;
+       d1nvcy[inopo]=T[1][0]*vX+T[1][1]*vY;
+       /* new coordinates */
+       d1nccx[inopo]=d1nccx[inopo]+d1nvcx[inopo]*dcstec;
+       d1nccy[inopo]=d1nccy[inopo]+d1nvcy[inopo]*dcstec;
+    }
+  }
+}
+static void Ysd2TRIRIG( /* mechanical solver rigid triangles  */
+             nelem,
+            dcstec, dpero, iprop,
+            d1nccx,d1nccy,d1nfcx,d1nfcy,d1nmct,
+            d1nvcx,d1nvcy,i1elpr,i2elto
+            )
+  INT   nelem;
+  DBL  dcstec; DBL   dpero; INT   iprop;
+  DBL *d1nccx; DBL *d1nccy; DBL *d1nfcx; DBL  *d1nfcy; DBL *d1nmct;
+  DBL *d1nvcx; DBL *d1nvcy; INT *i1elpr; INT **i2elto;
+{ INT i,ielem;
+  DBL mas,iner,xc,yc,vxc,vyc,fxc,fyc,omega,c,s,momf,momv;
+  DBL fx[3];
+  DBL fy[3];
+  DBL x[3];
+  DBL y[3];
+  DBL xnew;
+  DBL ynew;
+  DBL vx[3];
+  DBL vy[3];
+  for(ielem=0;ielem<nelem;ielem++)
+  { if(i1elpr[ielem]==iprop)
+    { for(i=0;i<3;i++)
+      { x[i]=d1nccx[i2elto[i][ielem]];
+        y[i]=d1nccy[i2elto[i][ielem]];
+        vx[i]=d1nvcx[i2elto[i][ielem]];
+        vy[i]=d1nvcy[i2elto[i][ielem]];
+        fx[i]=d1nfcx[i2elto[i][ielem]];
+        fy[i]=d1nfcy[i2elto[i][ielem]];
+      }
+      xc=(x[0]+x[1]+x[2])/R3;
+      yc=(y[0]+y[1]+y[2])/R3;
+      vxc=(vx[0]+vx[1]+vx[2])/R3;
+      vyc=(vy[0]+vy[1]+vy[2])/R3;
+      fxc=(fx[0]+fx[1]+fx[2])/R3;
+      fyc=(fy[0]+fy[1]+fy[2])/R3;
+      for(i=0;i<3;i++)
+      { x[i]=x[i]-xc;
+        y[i]=y[i]-yc;
+        vx[i]=vx[i]-vxc;
+        vy[i]=vy[i]-vyc;
+      }
+      momf=R0;  momv=R0;
+      for(i=0;i<3;i++)
+      { momf=momf+x[i]*fy[i]-y[i]*fx[i];
+        momv=momv+x[i]*vy[i]-y[i]*vx[i];
+      }
+      mas=dpero*((x[1]-x[0])*(y[2]-y[0])-
+                 (y[1]-y[0])*(x[2]-x[0]))/R6;
+      iner=mas*(x[0]*x[0]+y[0]*y[0]
+               +x[1]*x[1]+y[1]*y[1]
+               +x[2]*x[2]+y[2]*y[2]);
+      momv=momv*mas;
+      vxc=vxc+fxc*dcstec/mas;
+      vyc=vyc+fyc*dcstec/mas;
+      xc=xc+dcstec*vxc;
+      yc=yc+dcstec*vyc;
+      omega=momv/iner+momf*dcstec/iner;
+      c=COS(dcstec*omega);
+      s=SIN(dcstec*omega);
+      for(i=0;i<3;i++)
+      { xnew=x[i]*c-y[i]*s;
+        ynew=y[i]*c+x[i]*s;
+        d1nccx[i2elto[i][ielem]]=xc+xnew;
+        d1nccy[i2elto[i][ielem]]=yc+ynew;
+        d1nvcx[i2elto[i][ielem]]=vxc-ynew*omega;
+        d1nvcy[i2elto[i][ielem]]=vyc+xnew*omega;
+        d1nmct[i2elto[i][ielem]]=mas;
+      }
+    }
+  }
+}
+
+/* mechanical solver for 3D nodes with x,y,z d.o.f.*/
+static void Ysd3MEC(  mcstep, ncstep, nnopo,  dctime,
+                      dcstec, dcgrax, dcgray, dcgraz, 
+                      d1nccx, d1nccy, d1nccz,
+                      d1nfcx, d1nfcy, d1nfcz,
+                      d1nftx, d1nfty, d1nftz,
+                      d1nmct,
+                      d1nvcx, d1nvcy, d1nvcz,
+                      npnset, npnfact,d3pnfac,
+                      d1pnax, d1pnay, d1pnaz,
+                      i1nopr, 
+                      i1pnfx, i1pnfy, i1pnfz,
+                      d1pnxx, d1pnxy, d1pnxz,
+                      d1pnyx, d1pnyy, d1pnyz,
+                      d1pnzx, d1pnzy, d1pnzz,
+                      d1emct,
+                      nelem,nelno,i2elto,i1elpr,nprop,
+                      i1nobf,initer,dcurelx
+                    ) 
+  INT  mcstep;  INT  ncstep;  INT   nnopo;  DBL  dctime;  
+  DBL  dcstec;  DBL  dcgrax;  DBL  dcgray;  DBL  dcgraz;  
+  DBL *d1nccx;  DBL *d1nccy;  DBL *d1nccz;  
+  DBL *d1nfcx;  DBL *d1nfcy;  DBL *d1nfcz;  
+  DBL *d1nftx;  DBL *d1nfty;  DBL *d1nftz;  
+  DBL *d1nmct;  
+  DBL *d1nvcx;  DBL *d1nvcy;  DBL *d1nvcz;  
+  INT  npnset;  INT npnfact;  DBL ***d3pnfac;
+  DBL *d1pnax;  DBL *d1pnay;  DBL *d1pnaz;  
+  INT *i1nopr;  
+  INT *i1pnfx;  INT *i1pnfy;  INT *i1pnfz;
+  DBL *d1pnxx;  DBL *d1pnxy;  DBL *d1pnxz;  
+  DBL *d1pnyx;  DBL *d1pnyy;  DBL *d1pnyz;  
+  DBL *d1pnzx;  DBL *d1pnzy;  DBL *d1pnzz;  
+  DBL *d1emct;  
+  INT nelem;    INT nelno;    
+  INT **i2elto; INT *i1elpr;  INT nprop;
+  DBL dcurelx;  INT initer;   INT *i1nobf;
+{ INT inopo,i,iprop, itag;
+  DBL aX,aY,aZ,aX1,aY1,aZ1,fX,fY,fZ,vX,vY,vZ,det, **Tran, **iTran;
+  DBL static *d1amx,*d1amy,*d1amz,*d1deltavx,*d1deltavy,*d1deltavz,***T, ***iT;
+  DBL static *d1nftx1,*d1nfty1,*d1nftz1, *d1scale, *d1time, *d1fact, fscale;
+  DBL const small=EPSILON;
+  INT static itimes = 0;
+  
+  if(itimes == 0)
+  { itimes = 1;
+    d1amx=TalDBL1(nnopo);
+    d1amy=TalDBL1(nnopo);
+    d1amz=TalDBL1(nnopo);
+    d1deltavx=TalDBL1(nnopo);
+    d1deltavy=TalDBL1(nnopo);
+    d1deltavz=TalDBL1(nnopo);
+    d1nftx1=TalDBL1(nnopo);
+    d1nfty1=TalDBL1(nnopo);
+    d1nftz1=TalDBL1(nnopo);
+    d1scale=TalDBL1(npnset);
+    T=TalDBL3I(npnset,3,3,R0);
+    iT=TalDBL3I(npnset,3,3,R0);
+    for(iprop=0; iprop<npnset; iprop++)
+    { for(i=0; i<3; i++)
+      { T[iprop][i][i] = R1;
+        iT[iprop][i][i] = R1;
+      }
+    }
+    if(d3pnfac!=DBL3NULL)
+    { for(iprop=0; iprop<npnset; iprop++)
+      { T[iprop][0][0] = d1pnxx[iprop]; T[iprop][0][1] = d1pnyx[iprop]; T[iprop][0][2] = d1pnzx[iprop];
+        T[iprop][1][0] = d1pnxy[iprop]; T[iprop][1][1] = d1pnyy[iprop]; T[iprop][1][2] = d1pnzy[iprop];
+        T[iprop][2][0] = d1pnxz[iprop]; T[iprop][2][1] = d1pnyz[iprop]; T[iprop][2][2] = d1pnzz[iprop];              
+        
+        YMATINV3(T[iprop],iT[iprop],det);
+      }
+    }
+  }
+  
+  for(inopo=0;inopo<nnopo;inopo++)
+  { if(d1nmct[inopo]< small) continue;
+    iprop=i1nopr[inopo];
+    d1nftx[inopo]=d1nftx[inopo]+d1nfcx[inopo];
+    d1nfty[inopo]=d1nfty[inopo]+d1nfcy[inopo];
+    d1nftz[inopo]=d1nftz[inopo]+d1nfcz[inopo];
+
+    d1deltavx[inopo]=d1nftx[inopo]/d1nmct[inopo];
+    d1deltavy[inopo]=d1nfty[inopo]/d1nmct[inopo];
+    d1deltavz[inopo]=d1nftz[inopo]/d1nmct[inopo];
+
+    d1amx[inopo]=R0;
+    d1amy[inopo]=R0;
+    d1amz[inopo]=R0;
+  }
+  
+  if(d3pnfac!=DBL3NULL)
+  { for(iprop=0; iprop<npnset; iprop++)
+    { d1time = d3pnfac[0][iprop];
+      d1fact = d3pnfac[1][iprop];
+      fscale = 0.0;
+      itag = -1;
+      for(i=0; i<npnfact-1; i++)
+      { if(dctime >= d1time[i] && dctime < d1time[i+1])
+        { itag = i;
+          break;
+        }
+      }
+      if(itag >= 0)
+      { fscale = d1fact[itag] + (d1fact[itag+1]-d1fact[itag])*
+                (dctime-d1time[itag])/(d1time[itag+1]-d1time[itag]);
+      }
+      else if(npnfact==1)
+      { fscale = d1fact[0];
+      }
+      else
+      { CHRw(stderr,"Ysd: out of the boundary of D3BNFAC.");  CHRwcr(stderr);
+        exit(104);
+      }
+      d1scale[iprop] = fscale;
+    }
+  }
+  else
+  { for(iprop=0; iprop<npnset; iprop++)
+    { d1scale[iprop] = R1;
+    }
+  }
+
+  for(inopo=0;inopo<nnopo;inopo++)
+  { if(d1nmct[inopo]< small) continue;
+      
+    iprop=i1nopr[inopo]; 
+ 
+    Tran = T[iprop];
+    iTran=iT[iprop];
+    fscale = d1scale[iprop];
+
+    fX=R0; fY=R0; fZ=R0;
+    if(i1pnfx[iprop]==1) /* supplied force     */
+    { fX = d1pnax[iprop]*fscale;
+    }
+    if(i1pnfy[iprop]==1) /* supplied force     */
+    { fY = d1pnay[iprop]*fscale;
+    }
+    if(i1pnfz[iprop]==1) /* supplied force     */
+    { fZ = d1pnaz[iprop]*fscale;
+    }
+    
+    aX=R0; aY=R0; aZ=R0;
+    if(i1pnfx[iprop]==2) /* supplied acc.      */
+    { aX = d1pnax[iprop]*fscale;
+    }
+    if(i1pnfy[iprop]==2) /* supplied acc.      */
+    { aY = d1pnay[iprop]*fscale;
+    }
+    if(i1pnfz[iprop]==2) /* supplied acc.      */
+    { aZ = d1pnaz[iprop]*fscale;
+    }
+    aX=aX+fX/d1nmct[inopo];
+    aY=aY+fY/d1nmct[inopo];
+    aZ=aZ+fZ/d1nmct[inopo];
+  
+    if(i1pnfx[iprop]==3||i1pnfy[iprop]==3||i1pnfz[iprop]==3)  /*in local*/
+    { vX= d1nvcx[inopo]*iTran[0][0]+d1nvcy[inopo]*iTran[0][1]+d1nvcz[inopo]*iTran[0][2];
+      vY= d1nvcx[inopo]*iTran[1][0]+d1nvcy[inopo]*iTran[1][1]+d1nvcz[inopo]*iTran[1][2];
+      vZ= d1nvcx[inopo]*iTran[2][0]+d1nvcy[inopo]*iTran[2][1]+d1nvcz[inopo]*iTran[2][2];
+    }
+    else  /*in global*/
+    { vX= d1nvcx[inopo]; vY= d1nvcy[inopo]; vZ= d1nvcz[inopo];
+    }
+            
+    if(i1pnfx[iprop]==3||i1pnfy[iprop]==3||i1pnfz[iprop]==3)  /*in local*/
+    { aX1=aX+(dcgrax+d1deltavx[inopo])*iTran[0][0]+
+       (dcgray+d1deltavy[inopo])*iTran[0][1]+(dcgraz+d1deltavz[inopo])*iTran[0][2];
+      aY1=aY+(dcgrax+d1deltavx[inopo])*iTran[1][0]+
+       (dcgray+d1deltavy[inopo])*iTran[1][1]+(dcgraz+d1deltavz[inopo])*iTran[1][2];
+      aZ1=aZ+(dcgrax+d1deltavx[inopo])*iTran[2][0]+
+       (dcgray+d1deltavy[inopo])*iTran[2][1]+(dcgraz+d1deltavz[inopo])*iTran[2][2];
+    }
+    else  /*in global*/
+    { aX1=dcgrax+d1deltavx[inopo]+Tran[0][0]*aX+Tran[0][1]*aY+Tran[0][2]*aZ;
+      aY1=dcgray+d1deltavy[inopo]+Tran[1][0]*aX+Tran[1][1]*aY+Tran[1][2]*aZ;
+      aZ1=dcgraz+d1deltavz[inopo]+Tran[2][0]*aX+Tran[2][1]*aY+Tran[2][2]*aZ;
+    }
+
+    if(i1pnfx[iprop]==3) /* supplied velocity     */
+    { vX=d1pnax[iprop]*fscale;
+    }
+    else
+    { vX=vX+aX1*dcstec;
+    }
+
+    if(i1pnfy[iprop]==3) /* supplied velocity     */
+    { vY=d1pnay[iprop]*fscale;
+    }
+    else
+    { vY=vY+aY1*dcstec;
+    }
+
+    if(i1pnfz[iprop]==3) /* supplied velocity     */
+    { vZ=d1pnaz[iprop]*fscale;
+    }
+    else
+    { vZ=vZ+aZ1*dcstec;
+    }
+    
+    if(i1pnfx[iprop]==3||i1pnfy[iprop]==3||i1pnfz[iprop]==3) /*in local*/
+    { d1nvcx[inopo]=Tran[0][0]*vX+Tran[0][1]*vY+Tran[0][2]*vZ;
+      d1nvcy[inopo]=Tran[1][0]*vX+Tran[1][1]*vY+Tran[1][2]*vZ;
+      d1nvcz[inopo]=Tran[2][0]*vX+Tran[2][1]*vY+Tran[2][2]*vZ;
+    }
+    else /*in global*/
+    { d1nvcx[inopo]=vX; d1nvcy[inopo]=vY; d1nvcz[inopo]=vZ;
+    }
+
+    /* new coordinates */
+    d1nccx[inopo]=d1nccx[inopo]+d1nvcx[inopo]*dcstec; 
+    d1nccy[inopo]=d1nccy[inopo]+d1nvcy[inopo]*dcstec;
+    d1nccz[inopo]=d1nccz[inopo]+d1nvcz[inopo]*dcstec;
+  }     
+
+  if(ncstep==mcstep-1)
+  { itimes = 0;
+    FREE(d1amx);
+    FREE(d1amy);
+    FREE(d1amz);
+    FREE(d1deltavx);
+    FREE(d1deltavy);
+    FREE(d1deltavz);
+    FREE(d1nftx1);
+    FREE(d1nfty1);
+    FREE(d1nftz1);
+    FREE(d1scale);
+    FREE(T);
+    FREE(iT);
+  }
+}
+/********* PUBLIC ********************/
+void Ysd(ydc,yde, ydn, ydo, ydpe, ydpn   /*** explicit solver of equations   ***/
+         )
+  YDC ydc; YDE yde; YDN ydn; YDO ydo; YDPE ydpe; YDPN ydpn;
+{ DBL Ek,stprev;
+  INT iprop,i,ihys, ibc;
+  DBL const small=EPSILON;
+
+  /* Solve Y elem. and nodes */
+  if(ydn->nnodim==2)
+  { for(ibc=0;ibc < ydpn->npnset;ibc++)		/* For Property Nodes ONLY */
+    { /* YTN2MEC = -1 2D mechanical x,y d.o.f. node */
+      Ysd2MEC(/* mechanical solver for 2D nodes with x,y d.o.f.  */
+      ydn->nnopo,
+      ydc->dcstec,ydc->dcgray, ydc->dctime, ydpn->npnfact, ibc,
+      ydpn->d3pnfac,
+      ydn->d2ncc[0],ydn->d2ncc[1],ydn->d2nfc[0],ydn->d2nfc[1],ydn->d1nmct,
+      ydn->d2nvc[0],ydn->d2nvc[1],ydpn->d1pnax,ydpn->d1pnay,ydpn->d1pnxx,
+      ydpn->d1pnxy,ydpn->d1pnyx,ydpn->d1pnyy,ydn->i1nopr,
+      ydpn->i1pnfx, ydpn->i1pnfy
+      );
+    }
+    for(iprop=0;iprop<ydpe->nprop;iprop++)
+    { if((ydpe->i1ptyp[iprop])==(YTE2TRIRIG))		/* YTE2TRIRIG = -2 rigid triangle*/
+      { Ysd2TRIRIG( /* mechanical solver rigid triangles  */
+        yde->nelem,
+        ydc->dcstec,ydpe->d1pero[iprop], iprop,
+        ydn->d2ncc[0],ydn->d2ncc[1],ydn->d2nfc[0],ydn->d2nfc[1],ydn->d1nmct,
+        ydn->d2nvc[0],ydn->d2nvc[1],yde->i1elpr,yde->i2elto
+        );
+    } }
+  }
+  else if(ydn->nnodim==3)
+  {   Ysd3MEC(/* mechanical solver for 3D nodes with x,y,z d.o.f.  */
+      ydc->mcstep, ydc->ncstep, ydn->nnopo, ydc->dctime,
+      ydc->dcstec, ydc->dcgrax, ydc->dcgray,ydc->dcgraz,
+      ydn->d2ncc[0],ydn->d2ncc[1],ydn->d2ncc[2],
+      ydn->d2nfc[0],ydn->d2nfc[1],ydn->d2nfc[2],
+      ydn->d2nft[0],ydn->d2nft[1],ydn->d2nft[2],
+      ydn->d1nmct,
+      ydn->d2nvc[0],ydn->d2nvc[1],ydn->d2nvc[2],
+      ydpn->npnset, ydpn->npnfact,ydpn->d3pnfac,
+      ydpn->d1pnax, ydpn->d1pnay, ydpn->d1pnaz,
+      ydn->i1nopr,
+      ydpn->i1pnfx, ydpn->i1pnfy, ydpn->i1pnfz,
+      ydpn->d1pnxx, ydpn->d1pnxy, ydpn->d1pnxz,
+      ydpn->d1pnyx, ydpn->d1pnyy, ydpn->d1pnyz,
+      ydpn->d1pnzx, ydpn->d1pnzy, ydpn->d1pnzz,
+      yde->d1emct,
+      yde->nelem,yde->nelno,yde->i2elto,yde->i1elpr,ydpe->nprop,
+      ydn->i1nobf,ydc->initer,ydc->dcurelx);
+  }
+  
+  /* Calculate Kinetic Energy */
+  Ek=R0;
+  for(i=0;i<ydn->nnopo;i++)
+  { if(ydn->d1nmct[i]<small) continue;
+    if(ydn->nnodim==2)
+    { Ek=Ek+RP5*(ydn->d2nvc[0][i]*ydn->d2nvc[0][i]+
+         ydn->d2nvc[1][i]*ydn->d2nvc[1][i])*ydn->d1nmct[i];
+    }
+    if(ydn->nnodim==3)
+    { Ek=Ek+RP5*(ydn->d2nvc[0][i]*ydn->d2nvc[0][i]+
+         ydn->d2nvc[1][i]*ydn->d2nvc[1][i]+
+         ydn->d2nvc[2][i]*ydn->d2nvc[2][i])*ydn->d1nmct[i];
+    }
+  }
+  ydpe->dkeneg = Ek;
+    
+  for(ihys=0;ihys<ydo->nohys;ihys++)  /* get history variables */
+  { if(ydo->i1ohyt[ihys]==(YFLEK))
+    { stprev=MAXIM((EPSILON),(ABS(ydo->d1ohys[ihys])));
+      if((ABS(R1-Ek/stprev))>=ydo->dohyp)
+      { ydo->d1ohys[ihys]=Ek;
+        ydo->d1ohyt[ihys]=ydc->dctime;
+  } } }
+}
